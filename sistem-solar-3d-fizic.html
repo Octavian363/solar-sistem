@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sistemul Solar 3D - Simulare Fizică & Astronomică</title>
+  <!-- Three.js & OrbitControls de pe cdnjs cu versiune fixată r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #030614; font-family: system-ui, -apple-system, sans-serif; color: #f1f5f9; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+    
+    /* Top Header Badge */
+    .top-badge {
+      position: absolute; top: 16px; left: 16px; z-index: 20;
+      background: rgba(10, 16, 32, 0.88); border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 10px 16px; border-radius: 14px; pointer-events: auto;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5); backdrop-filter: blur(8px);
+    }
+    .top-badge h1 { font-size: 14px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+    .top-badge p { font-size: 11px; color: #38bdf8; margin-top: 2px; }
+    .scale-warning { font-size: 10px; color: #fbbf24; margin-top: 4px; max-width: 380px; line-height: 1.3; }
+
+    /* Planet Info Card */
+    #info-panel {
+      position: absolute; top: 16px; right: 16px; z-index: 25; width: 320px; max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 120px); overflow-y: auto; background: rgba(8, 14, 30, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 16px; padding: 18px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7); display: none; backdrop-filter: blur(8px);
+    }
+    #info-panel.visible { display: block; animation: slideIn 0.25s ease-out; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+    /* Bottom Control Dock */
+    #controls-dock {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 30;
+      width: 95vw; max-width: 880px; background: rgba(5, 10, 24, 0.94);
+      border: 1px solid rgba(71, 85, 105, 0.5); border-radius: 20px; padding: 12px 18px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.8); display: flex; flex-direction: column; gap: 10px;
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .btn {
+      background: #1e293b; color: #cbd5e1; border: 1px solid #334155; padding: 6px 12px;
+      border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; transition: 0.15s;
+    }
+    .btn:hover { background: #334155; color: #fff; }
+    .btn.active { background: #0284c7; color: #fff; border-color: #38bdf8; }
+    .btn-play { background: #059669; color: #fff; border-color: #10b981; padding: 7px 16px; font-size: 12px; }
+    .btn-play.paused { background: #d97706; border-color: #f59e0b; }
+    .planet-btn { padding: 4px 10px; font-size: 11px; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+    .data-metric { background: rgba(15, 23, 42, 0.8); border: 1px solid #1e293b; padding: 8px 10px; border-radius: 10px; }
+    .data-val { font-size: 15px; font-weight: 700; color: #38bdf8; }
+    .data-lbl { font-size: 10px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Header Badge -->
+  <div class="top-badge">
+    <h1><span>🪐</span> Sistemul Solar 3D (Fizică Kepleriană)</h1>
+    <p id="scale-badge-text">Scară: Didactică (comprimată pentru vizualizare la clasă)</p>
+    <div id="scale-warning-text" class="scale-warning">
+      Atenție: În modul didactic, distanțele și mărimile planetelor sunt adaptate pentru a se vedea simultan toate cele 8 planete. Mărimile reale nu sunt la scară cu distanțele!
+    </div>
+  </div>
+
+  <!-- Inspector Planetă -->
+  <div id="info-panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 id="p-name" style="font-size:18px; color:#fff;">Pământ</h2>
+      <button class="btn" onclick="closeInfoPanel()" style="padding:4px 8px;">✕</button>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+      <div class="data-metric">
+        <div class="data-lbl">Viteză orbitală</div>
+        <div id="p-speed" class="data-val">29.78 km/s</div>
+      </div>
+      <div class="data-metric">
+        <div class="data-lbl">Distanță Soare</div>
+        <div id="p-dist" class="data-val">1.000 UA</div>
+      </div>
+      <div class="data-metric">
+        <div class="data-lbl">Perioadă orbitală</div>
+        <div id="p-period" class="data-val">365.2 zile</div>
+      </div>
+      <div class="data-metric">
+        <div class="data-lbl">Rotație pe axă</div>
+        <div id="p-rot" class="data-val">23.9 ore</div>
+      </div>
+    </div>
+    <div style="font-size:11px; color:#cbd5e1; line-height:1.4; margin-bottom:12px; background:rgba(15,23,42,0.6); padding:8px; border-radius:8px;" id="p-desc"></div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn active" style="flex:1;" onclick="focusSelectedPlanet()">Focalizează planeta</button>
+      <button class="btn" onclick="resetToSun()">Vedere Soare</button>
+    </div>
+  </div>
+
+  <!-- Panou de control -->
+  <div id="controls-dock">
+    <!-- Rândul 1: Selector de planete -->
+    <div class="row" id="planet-buttons" style="justify-content: flex-start; overflow-x: auto; padding-bottom: 2px;">
+      <button class="btn planet-btn active" onclick="selectPlanet(null)">☀️ Soare</button>
+    </div>
+
+    <!-- Rândul 2: Timp și viteză -->
+    <div class="row">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button id="btn-play" class="btn btn-play" onclick="togglePlay()">⏸ Pauză</button>
+        <button class="btn" onclick="stepTime(-1)">◀ -1 zi</button>
+        <button class="btn" onclick="stepTime(1)">+1 zi ▶</button>
+        <span id="sim-date" style="font-family:monospace; font-size:12px; color:#94a3b8; margin-left:6px;">0z (0a)</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:11px; color:#94a3b8;">Viteză:</span>
+        <input type="range" id="time-slider" min="1" max="3650" value="5" oninput="setTimeScale(this.value)" style="width:120px;">
+        <span id="speed-display" style="font-family:monospace; font-size:12px; color:#38bdf8; min-width:60px;">5 z/s</span>
+      </div>
+    </div>
+
+    <!-- Rândul 3: Comutări Mod & Scară -->
+    <div class="row">
+      <div style="display:flex; gap:4px;">
+        <button id="btn-scale-didactic" class="btn active" onclick="setScaleMode('didactic')">Scară Didactică</button>
+        <button id="btn-scale-real" class="btn" onclick="setScaleMode('realistic')">Scară Reală (UA)</button>
+      </div>
+      <div style="display:flex; gap:4px;">
+        <button id="btn-view-helio" class="btn active" onclick="setViewMode('heliocentric')">Heliocentric</button>
+        <button id="btn-view-galac" class="btn" onclick="setViewMode('galactic')">🚀 Soarele în Mișcare</button>
+      </div>
+      <div style="display:flex; gap:4px;">
+        <button id="btn-orbits" class="btn active" onclick="toggleOrbits()">Orbite</button>
+        <button id="btn-moons" class="btn active" onclick="toggleMoons()">Sateliți</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // DATE ASTRONOMICE EXACTE CONFORM CERINȚEI
+    const PLANETS = [
+      { id:'mercury', name:'Mercur', a:0.387, e:0.206, inc:7.0, T:87.97, Trot:58.65, tilt:0.03, col:0x9e9e9e, r:0.75, desc:'Cea mai apropiată planetă de Soare, cu excentricitate mare (e=0.206). Viteza orbitală crește puternic la periheliu.' },
+      { id:'venus', name:'Venus', a:0.723, e:0.007, inc:3.4, T:224.7, Trot:-243.0, tilt:177.4, col:0xe0b579, r:1.15, desc:'Planeta cu cea mai circulară orbită. Se rotește retrograd (de la est la vest) în 243 de zile terestre.' },
+      { id:'earth', name:'Pământ', a:1.000, e:0.017, inc:0.0, T:365.256, Trot:0.997, tilt:23.44, col:0x2196f3, r:1.25, desc:'Planul orbitei Pământului este ecliptica de referință. Înclinarea axei de 23.44° cauzează anotimpurile.' },
+      { id:'mars', name:'Marte', a:1.524, e:0.093, inc:1.85, T:686.98, Trot:1.026, tilt:25.19, col:0xd32f2f, r:0.9, desc:'Planeta pe baza căreia Kepler a descoperit că orbitele sunt elipse cu Soarele într-unul dintre focare.' },
+      { id:'jupiter', name:'Jupiter', a:5.203, e:0.049, inc:1.30, T:4332.6, Trot:0.414, tilt:3.13, col:0xd4a373, r:3.2, desc:'Gigantul sistemului. Are cea mai rapidă rotație axială (~9.9 ore) și 4 sateliți galileeni majori.' },
+      { id:'saturn', name:'Saturn', a:9.537, e:0.057, inc:2.49, T:10759, Trot:0.444, tilt:26.73, col:0xe2be7e, r:2.6, desc:'Renumit pentru sistemul de inele concentrice. Densitatea sa medie este mai mică decât cea a apei.' },
+      { id:'uranus', name:'Uranus', a:19.19, e:0.046, inc:0.77, T:30688, Trot:-0.718, tilt:97.77, col:0x70d6ff, r:1.8, desc:'Axa sa este înclinată cu 97.77°, rotindu-se practic culcat pe o parte și în sens retrograd.' },
+      { id:'neptun', name:'Neptun', a:30.07, e:0.009, inc:1.77, T:60182, Trot:0.671, tilt:28.32, col:0x304ffe, r:1.75, desc:'Cea mai îndepărtată planetă majoră, la peste 4.5 miliarde de km. Descoperită inițial prin calcul matematic.' }
+    ];
+
+    // Sateliți
+    const MOONS = [
+      { id:'moon', name:'Luna', parent:'earth', period:27.32, dist:2.2, inc:5.1, r:0.35, col:0xcfd8dc },
+      { id:'io', name:'Io', parent:'jupiter', period:1.77, dist:2.4, inc:0.05, r:0.28, col:0xfff176 },
+      { id:'europa', name:'Europa', parent:'jupiter', period:3.55, dist:3.2, inc:0.47, r:0.26, col:0xe0e0e0 },
+      { id:'ganymede', name:'Ganymede', parent:'jupiter', period:7.15, dist:4.2, inc:0.20, r:0.32, col:0xb0bec5 },
+      { id:'callisto', name:'Callisto', parent:'jupiter', period:16.69, dist:5.4, inc:0.28, r:0.30, col:0x78909c }
+    ];
+
+    // REZOLVARE ECUAȚIA LUI KEPLER: M = E - e * sin(E)
+    function solveKepler(M, e) {
+      let E = M;
+      for (let i = 0; i < 10; i++) {
+        const delta = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+        E -= delta;
+        if (Math.abs(delta) < 1e-7) break;
+      }
+      return E;
+    }
+
+    // SCENĂ THREE.JS
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030614);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 4000);
+    camera.position.set(0, 50, 110);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    // Lumini
+    const sunLight = new THREE.PointLight(0xffffff, 2.5, 0, 0);
+    scene.add(sunLight);
+    const hemiLight = new THREE.HemisphereLight(0x283593, 0x050814, 0.4);
+    scene.add(hemiLight);
+
+    // Câmp stelar
+    const starGeom = new THREE.BufferGeometry();
+    const starPos = [];
+    for (let i = 0; i < 2500; i++) {
+      const u = Math.random(), v = Math.random();
+      const th = u * 2 * Math.PI, ph = Math.acos(2 * v - 1), r = 1200 + Math.random() * 800;
+      starPos.push(r * Math.sin(ph) * Math.cos(th), r * Math.sin(ph) * Math.sin(th), r * Math.cos(ph));
+    }
+    starGeom.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(starGeom, new THREE.PointsMaterial({ color: 0xffffff, size: 1.8 })));
+
+    // Rădăcină sistem
+    const rootGroup = new THREE.Group();
+    scene.add(rootGroup);
+
+    // Soare
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(6, 32, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffa000 })
+    );
+    rootGroup.add(sunMesh);
+
+    // Planete & Noduri
+    const planetNodes = {};
+    const DEG2RAD = Math.PI / 180;
+    let scaleMode = 'didactic';
+    let viewMode = 'heliocentric';
+    let isPlaying = true;
+    let simDay = 0;
+    let timeScale = 5;
+    let showOrbits = true;
+    let showMoons = true;
+    let selectedPlanetId = null;
+
+    // Creare Planete
+    PLANETS.forEach(p => {
+      const root = new THREE.Group();
+      rootGroup.add(root);
+
+      const tiltGroup = new THREE.Group();
+      tiltGroup.rotation.z = p.tilt * DEG2RAD;
+      root.add(tiltGroup);
+
+      // Textură procedurală cu ecuator
+      const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#' + p.col.toString(16).padStart(6, '0');
+      ctx.fillRect(0, 0, 128, 64);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(0, 32); ctx.lineTo(128, 32); ctx.stroke();
+      const tex = new THREE.CanvasTexture(cv);
+
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(p.r, 24, 18),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 })
+      );
+      mesh.userData = { id: p.id };
+      tiltGroup.add(mesh);
+
+      // Inele Saturn
+      if (p.id === 'saturn') {
+        const rGeom = new THREE.RingGeometry(p.r * 1.4, p.r * 2.6, 32);
+        rGeom.rotateX(Math.PI / 2);
+        const rMesh = new THREE.Mesh(rGeom, new THREE.MeshBasicMaterial({ color: 0xd2b48c, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+        tiltGroup.add(rMesh);
+      }
+
+      // Orbită Kepler
+      const orbGeom = new THREE.BufferGeometry();
+      const orbLine = new THREE.Line(orbGeom, new THREE.LineBasicMaterial({ color: p.col, transparent: true, opacity: 0.35 }));
+      rootGroup.add(orbLine);
+
+      // Trail galactic
+      const trailGeom = new THREE.BufferGeometry();
+      const trailPositions = new Float32Array(300 * 3);
+      trailGeom.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+      const trailLine = new THREE.Line(trailGeom, new THREE.LineBasicMaterial({ color: p.col, transparent: true, opacity: 0.6 }));
+      trailLine.visible = false;
+      scene.add(trailLine);
+
+      planetNodes[p.id] = { data: p, root, tiltGroup, mesh, orbLine, trailLine, trailPositions };
+    });
+
+    // Sateliți
+    const moonNodes = {};
+    MOONS.forEach(m => {
+      const parent = planetNodes[m.parent];
+      if (!parent) return;
+      const grp = new THREE.Group();
+      grp.rotation.x = m.inc * DEG2RAD;
+      parent.root.add(grp);
+
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(m.r, 12, 8),
+        new THREE.MeshStandardMaterial({ color: m.col, roughness: 0.9 })
+      );
+      grp.add(mesh);
+      moonNodes[m.id] = { data: m, grp, mesh };
+    });
+
+    // Populare butoane planete
+    const btnContainer = document.getElementById('planet-buttons');
+    PLANETS.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'btn planet-btn';
+      b.innerHTML = '<span style="width:8px; height:8px; border-radius:50%; background:#' + p.col.toString(16).padStart(6,'0') + '; display:inline-block;"></span>' + p.name;
+      b.onclick = () => selectPlanet(p.id);
+      btnContainer.appendChild(b);
+    });
+
+    // Calculează poziția Kepler a unei planete
+    function getPlanetPos(p, day, mode) {
+      const meanMotion = (2 * Math.PI) / p.T;
+      const M = meanMotion * day;
+      const E = solveKepler(M, p.e);
+
+      const xOrb = p.a * (Math.cos(E) - p.e);
+      const zOrb = p.a * Math.sqrt(1 - p.e * p.e) * Math.sin(E);
+      const rAU = p.a * (1 - p.e * Math.cos(E));
+
+      const inc = p.inc * DEG2RAD;
+      const helioX = xOrb;
+      const helioY = zOrb * Math.sin(inc);
+      const helioZ = zOrb * Math.cos(inc);
+
+      const speed = 29.78 * Math.sqrt(Math.max(0, 2 / rAU - 1 / p.a));
+
+      let visualPos;
+      if (mode === 'didactic') {
+        const base = 14 + Math.pow(p.a, 0.58) * 16;
+        const norm = Math.sqrt(helioX*helioX + helioY*helioY + helioZ*helioZ);
+        visualPos = new THREE.Vector3(
+          (helioX / norm) * base * (rAU / p.a),
+          (helioY / norm) * base * 1.8 * (rAU / p.a),
+          (helioZ / norm) * base * (rAU / p.a)
+        );
+      } else {
+        const factor = 22;
+        visualPos = new THREE.Vector3(helioX * factor, helioY * factor, helioZ * factor);
+      }
+      return { visualPos, rAU, speed };
+    }
+
+    // Regenerează orbitele
+    function updateOrbitLines() {
+      PLANETS.forEach(p => {
+        const pts = [];
+        const segs = 120;
+        for (let i = 0; i <= segs; i++) {
+          const fakeDay = (i / segs) * p.T;
+          pts.push(getPlanetPos(p, fakeDay, scaleMode).visualPos);
+        }
+        planetNodes[p.id].orbLine.geometry.setFromPoints(pts);
+      });
+    }
+    updateOrbitLines();
+
+    // Rotație axială fără strobing
+    function getAxialRot(p, day, speed) {
+      const sign = Math.sign(p.Trot);
+      const absPer = Math.max(0.1, Math.abs(p.Trot));
+      const turnsSec = speed / absPer;
+      if (turnsSec > 1.8) {
+        const rate = sign * (1.8 + Math.log10(1 + turnsSec - 1.8) * 0.4);
+        return (rate * (day / Math.max(1, speed)) * 2 * Math.PI) % (2 * Math.PI);
+      }
+      return (sign * (day / absPer) * 2 * Math.PI) % (2 * Math.PI);
+    }
+
+    // Animație 60 FPS
+    let lastTime = performance.now();
+    const galacticSunPos = new THREE.Vector3(0, 0, 0);
+
+    function animate(time) {
+      requestAnimationFrame(animate);
+      const dt = Math.min((time - lastTime) / 1000, 0.1);
+      lastTime = time;
+
+      if (isPlaying) {
+        simDay += dt * timeScale;
+        document.getElementById('sim-date').innerText = simDay.toFixed(0) + 'z (' + (simDay/365.25).toFixed(1) + 'a)';
+      }
+
+      // Mod Galactic
+      if (viewMode === 'galactic') {
+        if (isPlaying) {
+          galacticSunPos.z -= dt * 6.0;
+          galacticSunPos.y = Math.sin(simDay * 0.002) * 4.0;
+        }
+        rootGroup.position.copy(galacticSunPos);
+      } else {
+        rootGroup.position.set(0, 0, 0);
+      }
+
+      // Actualizare planete
+      PLANETS.forEach(p => {
+        const node = planetNodes[p.id];
+        const state = getPlanetPos(p, simDay, scaleMode);
+        node.root.position.copy(state.visualPos);
+        node.mesh.rotation.y = getAxialRot(p, simDay, timeScale);
+
+        // Mod Galactic Trail
+        if (viewMode === 'galactic' && isPlaying) {
+          const wp = new THREE.Vector3();
+          node.root.getWorldPosition(wp);
+          const pos = node.trailPositions;
+          for (let i = pos.length - 1; i >= 3; i--) pos[i] = pos[i - 3];
+          pos[0] = wp.x; pos[1] = wp.y; pos[2] = wp.z;
+          node.trailLine.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // Live inspector update dacă planeta e selectată
+        if (selectedPlanetId === p.id) {
+          document.getElementById('p-speed').innerText = state.speed.toFixed(2) + ' km/s';
+          document.getElementById('p-dist').innerText = state.rAU.toFixed(3) + ' UA';
+        }
+      });
+
+      // Sateliți
+      if (showMoons) {
+        MOONS.forEach(m => {
+          const mn = moonNodes[m.id];
+          const angle = (simDay / m.period) * Math.PI * 2;
+          mn.mesh.position.set(Math.cos(angle) * m.dist, 0, Math.sin(angle) * m.dist);
+        });
+      }
+
+      // Urmărire cameră pe planeta focalizată
+      if (selectedPlanetId && planetNodes[selectedPlanetId]) {
+        const wp = new THREE.Vector3();
+        planetNodes[selectedPlanetId].root.getWorldPosition(wp);
+        controls.target.lerp(wp, 0.08);
+      } else if (viewMode === 'galactic') {
+        controls.target.lerp(galacticSunPos, 0.05);
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+
+    // Interacțiuni UI
+    window.togglePlay = function() {
+      isPlaying = !isPlaying;
+      const btn = document.getElementById('btn-play');
+      btn.innerText = isPlaying ? '⏸ Pauză' : '▶ Pornește';
+      btn.classList.toggle('paused', !isPlaying);
+    };
+
+    window.stepTime = function(days) {
+      simDay += days;
+      document.getElementById('sim-date').innerText = simDay.toFixed(0) + 'z';
+    };
+
+    window.setTimeScale = function(val) {
+      timeScale = parseFloat(val);
+      document.getElementById('speed-display').innerText = timeScale >= 365 ? (timeScale/365.25).toFixed(1) + ' a/s' : timeScale.toFixed(0) + ' z/s';
+    };
+
+    window.setScaleMode = function(mode) {
+      scaleMode = mode;
+      document.getElementById('btn-scale-didactic').classList.toggle('active', mode === 'didactic');
+      document.getElementById('btn-scale-real').classList.toggle('active', mode === 'realistic');
+      document.getElementById('scale-badge-text').innerText = mode === 'didactic' ? 'Scară: Didactică (comprimată)' : 'Scară: Reală (distanțe în UA)';
+      updateOrbitLines();
+    };
+
+    window.setViewMode = function(mode) {
+      viewMode = mode;
+      document.getElementById('btn-view-helio').classList.toggle('active', mode === 'heliocentric');
+      document.getElementById('btn-view-galac').classList.toggle('active', mode === 'galactic');
+      PLANETS.forEach(p => {
+        planetNodes[p.id].orbLine.visible = (mode === 'heliocentric' && showOrbits);
+        planetNodes[p.id].trailLine.visible = (mode === 'galactic');
+      });
+      if (mode === 'galactic') {
+        galacticSunPos.set(0, 0, 0);
+      }
+    };
+
+    window.toggleOrbits = function() {
+      showOrbits = !showOrbits;
+      document.getElementById('btn-orbits').classList.toggle('active', showOrbits);
+      PLANETS.forEach(p => { planetNodes[p.id].orbLine.visible = showOrbits && viewMode === 'heliocentric'; });
+    };
+
+    window.toggleMoons = function() {
+      showMoons = !showMoons;
+      document.getElementById('btn-moons').classList.toggle('active', showMoons);
+      MOONS.forEach(m => { moonNodes[m.id].grp.visible = showMoons; });
+    };
+
+    window.selectPlanet = function(id) {
+      selectedPlanetId = id;
+      const panel = document.getElementById('info-panel');
+      if (!id) {
+        panel.classList.remove('visible');
+        return;
+      }
+      const p = PLANETS.find(x => x.id === id);
+      if (!p) return;
+      document.getElementById('p-name').innerText = p.name;
+      document.getElementById('p-period').innerText = p.T + ' zile';
+      document.getElementById('p-rot').innerText = Math.abs(p.Trot * 24).toFixed(1) + ' ore' + (p.Trot < 0 ? ' (retrograd)' : '');
+      document.getElementById('p-desc').innerText = p.desc;
+      panel.classList.add('visible');
+    };
+
+    window.focusSelectedPlanet = function() {
+      if (!selectedPlanetId) return;
+      const node = planetNodes[selectedPlanetId];
+      if (!node) return;
+      const wp = new THREE.Vector3();
+      node.root.getWorldPosition(wp);
+      camera.position.set(wp.x + 6, wp.y + 4, wp.z + 8);
+      controls.target.copy(wp);
+    };
+
+    window.resetToSun = function() {
+      selectedPlanetId = null;
+      document.getElementById('info-panel').classList.remove('visible');
+      camera.position.set(0, 50, 110);
+      controls.target.set(0, 0, 0);
+    };
+
+    window.closeInfoPanel = function() {
+      document.getElementById('info-panel').classList.remove('visible');
+    };
+
+    // Redimensionare
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
